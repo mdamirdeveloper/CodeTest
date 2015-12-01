@@ -8,21 +8,17 @@
 
 #import "MasterViewController.h"
 #import "DetailViewController.h"
-
+#import "Item.h"
+#import "ServicesManager.h"
 @interface MasterViewController ()
-
-@property NSMutableArray *objects;
+@property (weak, nonatomic) IBOutlet UISearchBar *searchBar;
+@property NSArray *objects;
 @end
 
 @implementation MasterViewController
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    // Do any additional setup after loading the view, typically from a nib.
-    self.navigationItem.leftBarButtonItem = self.editButtonItem;
-
-    UIBarButtonItem *addButton = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemAdd target:self action:@selector(insertNewObject:)];
-    self.navigationItem.rightBarButtonItem = addButton;
     self.detailViewController = (DetailViewController *)[[self.splitViewController.viewControllers lastObject] topViewController];
 }
 
@@ -36,21 +32,13 @@
     // Dispose of any resources that can be recreated.
 }
 
-- (void)insertNewObject:(id)sender {
-    if (!self.objects) {
-        self.objects = [[NSMutableArray alloc] init];
-    }
-    [self.objects insertObject:[NSDate date] atIndex:0];
-    NSIndexPath *indexPath = [NSIndexPath indexPathForRow:0 inSection:0];
-    [self.tableView insertRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationAutomatic];
-}
 
 #pragma mark - Segues
 
 - (void)prepareForSegue:(UIStoryboardSegue *)segue sender:(id)sender {
     if ([[segue identifier] isEqualToString:@"showDetail"]) {
         NSIndexPath *indexPath = [self.tableView indexPathForSelectedRow];
-        NSDate *object = self.objects[indexPath.row];
+        Item *object = self.objects[indexPath.row];
         DetailViewController *controller = (DetailViewController *)[[segue destinationViewController] topViewController];
         [controller setDetailItem:object];
         controller.navigationItem.leftBarButtonItem = self.splitViewController.displayModeButtonItem;
@@ -69,25 +57,46 @@
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+    __weak UITableView * weakTable = tableView;
+    __block NSIndexPath * blockIndexPath = indexPath;
     UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"Cell" forIndexPath:indexPath];
 
-    NSDate *object = self.objects[indexPath.row];
-    cell.textLabel.text = [object description];
+    Item *object = self.objects[indexPath.row];
+    cell.textLabel.text = object.artistName;
+    cell.detailTextLabel.text = object.trackName;
+    if(object.artwork){
+        cell.imageView.image = object.artwork;
+    }else{
+        cell.imageView.image = nil;
+        //TODO: Progress HUD
+        [[ServicesManager sharedServicesManager] downloadImage:object.artworkUrl30 completion:^(BOOL success, UIImage *image, NSError *error) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                object.artwork = image;
+                [weakTable reloadRowsAtIndexPaths:@[blockIndexPath] withRowAnimation:UITableViewRowAnimationAutomatic];
+            });
+            
+        }];
+    }
+
     return cell;
 }
 
-- (BOOL)tableView:(UITableView *)tableView canEditRowAtIndexPath:(NSIndexPath *)indexPath {
-    // Return NO if you do not want the specified item to be editable.
-    return YES;
-}
 
-- (void)tableView:(UITableView *)tableView commitEditingStyle:(UITableViewCellEditingStyle)editingStyle forRowAtIndexPath:(NSIndexPath *)indexPath {
-    if (editingStyle == UITableViewCellEditingStyleDelete) {
-        [self.objects removeObjectAtIndex:indexPath.row];
-        [tableView deleteRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationFade];
-    } else if (editingStyle == UITableViewCellEditingStyleInsert) {
-        // Create a new instance of the appropriate class, insert it into the array, and add a new row to the table view.
-    }
-}
 
+- (void)searchBarSearchButtonClicked:(UISearchBar *)searchBar{
+    __weak MasterViewController * weakSelf = self;
+    //Perform search
+    [[ServicesManager sharedServicesManager] searchArtist:searchBar.text completion:^(BOOL success, NSArray *songs, NSError *error) {
+        _objects = songs;
+        //Reload table with new results
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [weakSelf.tableView reloadData];
+        });
+        
+    }];
+}
+- (void)searchBarCancelButtonClicked:(UISearchBar *)searchBar{
+    //Cancel all ongoing operations
+    [[ServicesManager sharedServicesManager] cancelArtistSearch];
+}
 @end
